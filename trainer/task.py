@@ -2,36 +2,9 @@ import os
 import tensorflow as tf 
 import model as modellib
 import argparse
+import sys
 
-def weight_variable(shape):
-    print("weight", shape)
-    initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
 
-def bias_variable(shape):
-    print("bias", shape)
-    initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial)
-
-def conv2d(x, w):
-    return tf.nn.conv2d(x, w, strides=[1,1,1,1], padding="SAME")
-
-def max_pool_2x2(x):
-    return tf.nn.max_pool(x, ksize=[1,2,2,1],
-                          strides=[1,2,2,1], padding="SAME")
-
-def conv_layer(input, shape):
-    w = weight_variable(shape)
-    b = bias_variable([shape[3]])
-    return tf.nn.relu(conv2d(input, w)+b)
-
-def full_layer(input, size):
-    in_size = int(input.get_shape()[1])
-    print("in_size", in_size)
-    w = weight_variable([in_size, size])
-    print(in_size, size)
-    b = bias_variable([size])
-    return tf.matmul(input, w) + b
 
 
 def train():
@@ -152,13 +125,46 @@ def train():
 class Trainer(object):
     """Performs model training and optionally evaluation"""
 
-    def __init__(self, args, model):
-        self.args = args
+    def __init__(self, model):
+        self.args = None
         self.model = model
+        self.train_data_path = '../mnistdata/train.tfrecord'
 
     def run_training(self):
-        self.train_data_file = os.path.join(self.args.train_data_path, 'train.tfrecord')
-        print(self.train_data_file)
+        tensors = self.model.build_train_graph(self.train_data_path)        
+
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        coord = tf.train.Coordinator()
+
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        try:
+            step = 0
+            while not coord.should_stop():
+                step += 1
+                # print("step: ", step)
+                sess.run([tensors.train])
+                print(step)
+                if step % 500 == 0:
+                    print(step)
+                    # break
+                    # print(sess.run([tf.reduce_sum(y_pred)]))
+
+                    # loss_mean_val, acc = sess.run([loss_mean, loss_mean])
+                    # print(step, loss_mean_val, acc)
+
+        except tf.errors.OutOfRangeError:
+            print("done")
+        finally:
+            coord.request_stop()
+
+        coord.join(threads)
+
+        sess.close()
+
 
 def run(model, argv):
     """run a training"""
@@ -178,15 +184,16 @@ def run(model, argv):
 
     dispatch(model, args)
 
-def dispatch(args, model):
-    Trainer(args, model).run_training()    
-
+def dispatch(model):
+    Trainer(model).run_training()    
 
 def main(_):
-    # cnn =  modellib.create_model()
+    print('main:', _)
+    cnn =  modellib.create_model()
+    dispatch(cnn)
+
     # run(cnn, argv)
-    pass
+    print(sys.argv)
 
 if __name__ == '__main__':
     tf.app.run()
-    print(flags)
