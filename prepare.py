@@ -18,16 +18,11 @@ for i in range(len(data_splits)):
 
 	writer = tf.python_io.TFRecordWriter(filename)
 
+	print(dataset.images.shape[0])
 	for index in range(dataset.images.shape[0]):
-		# print(dataset.images[index].dtype)
-		# print(dataset.labels[index].dtype)
-
-		# break
-
 		image = dataset.images[index].tostring()
 		label = dataset.labels[index].tostring()
-		# print(dataset.labels[index])
-		# break
+
 		example = tf.train.Example(features=tf.train.Features(
 				feature={
 					# 'height': tf.train.Feature(int64_list=tf.train.Int64List(value=[dataset.images.shape[1]])),
