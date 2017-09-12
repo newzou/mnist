@@ -1,1 +1,2 @@
-python trainer/task.py --train-datapath mnistdata/train.tfrecord --output-path ./output --eval-datapath mnistdata/test.tfrecord
+python trainer/task.py --train-data ./mnistdata/train.tfrecord --output output --test-data ./mnistdata/test.tfrecord
+

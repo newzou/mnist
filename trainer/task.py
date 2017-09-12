@@ -3,197 +3,155 @@ import tensorflow as tf
 import model as modellib
 import argparse
 import sys
+import traceback
 
+class Evaluator(object):
+    """Load the latest checkpoint and evalulate"""
+    def __init__(self, model, saved_path, test_data, output):
+        self.model=model
+        self.saved_path=saved_path
+        self.test_data=test_data
+        self.output=output
 
+    def evaluate(self):
+        """Run evaluation, return loss and accuracy"""
 
+        # create an evaluation graph
+        with tf.Graph().as_default() as graph:
+            self.tensors = self.model.build_eval_graph(self.test_data)
+            self.summary = tf.summary.merge_all()
+            self.saver = tf.train.Saver()
 
-def train():
-    save_dir = './save_dir1'
+            global_init = tf.local_variables_initializer()
+            local_init=tf.global_variables_initializer()
 
-    filename = os.path.join(save_dir, 'train.tfrecord')
-    filename_queue = tf.train.string_input_producer([filename], num_epochs=10)
+        sess1 = tf.Session(graph=graph)
+        sess1.run(local_init)
+        sess1.run(global_init)
+                
+        last_checkpoint = tf.train.latest_checkpoint(self.saved_path)        
+        self.saver.restore(sess1, last_checkpoint)
 
-    reader = tf.TFRecordReader()
-    _, serialized_example = reader.read(filename_queue)
+        # for tensorboard
+        logdir = os.path.join(self.output, 'test')
+        writer = tf.summary.FileWriter(logdir, sess1.graph)
 
-    # features = tf.parse_single_example(serialized_example,
-    # 	features={'image_raw': tf.FixedLenFeature([], tf.string),'label': tf.FixedLenFeature([], tf.int64)})
+        # build for pipelines
+        coord1 = tf.train.Coordinator()
+        threads1 = tf.train.start_queue_runners(sess=sess1, coord=coord1)
 
-    features = tf.parse_single_example(serialized_example,
-    	features={
-    		'image_raw': tf.FixedLenFeature([], tf.string),
-    		'label': tf.FixedLenFeature([], tf.string)
-    	}
-    )
+        try:
+            while not coord1.should_stop():
+                metrics = sess1.run(self.tensors.metric_values)
+        except tf.errors.OutOfRangeError:
+            print("finish evaluation")
+        finally:
+            coord1.request_stop()
+        
+        coord1.join(threads1)
 
-    image = tf.decode_raw(features['image_raw'], tf.uint8)
-    label_raw = tf.decode_raw(features['label'], tf.float64)
-    # label_raw = tf.cast(features['label'], tf.int64)
-
-    # label_raw.set_shape([10])
-    image.set_shape([784])
-
-    image = tf.cast(image, tf.float32)  #* (1/255) 
-
-    label_raw.set_shape([10])
-
-    label = tf.cast(label_raw, tf.float32)
-    # label = label_raw
-
-    image_batch, labels_batch = tf.train.shuffle_batch([image, label], batch_size=100,
-    	capacity=2000, min_after_dequeue=1000)
-
-    image_2d = tf.reshape(image_batch, [-1, 28, 28, 1])
-
-
-    # labels_2d = tf.reshape(labels_batch, [-1, 10])
-
-    conv1 = conv_layer(image_2d, shape=[5,5,1,32])
-    onv1_pool = max_pool_2x2(conv1)
-
-    conv2 = conv_layer(conv1, shape=[5,5,32,64])
-    conv2_pool = max_pool_2x2(conv2)
-
-    conv2_flat = tf.contrib.layers.flatten(conv2_pool)
-
-    # conv2_flat = tf.contrib.layers.flatten(image_2d)
-
-    # full_1 = tf.nn.relu(full_layer(conv2_flat, 1024))
-
-    # keep_prob = tf.placeholder(tf.float32)
-    # keep_prob = 0.5
-    # full1_drop = tf.nn.dropout(full_1, keep_prob=keep_prob)
-
-    y_pred = full_layer(conv2_flat, 10)
-
-    print("y_pred", y_pred.shape, y_pred.dtype)
-    print("label_batch", labels_batch.shape)
-    # print(labels_2d.shape)
-
-    # loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=y_pred, labels=labels_batch)
-
-    loss = tf.nn.softmax_cross_entropy_with_logits(logits=y_pred, labels=labels_batch)
-
-    # loss = tf.reduce_mean(loss)
-    # loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=y_pred, labels=labels_batch))
-
-    # correct_prediction=tf.equal( tf.argmax(y_pred, 1), labels_batch)
-
-    	# pred = tf.argmax(y_conv,1)
-
-    # accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-    loss_mean = tf.reduce_mean(loss)
-
-    train_op = tf.train.AdamOptimizer().minimize(loss)
-
-    sess = tf.Session()
-
-    init = tf.global_variables_initializer()
-
-    sess.run(init)
-
-    init = tf.local_variables_initializer()
-
-    sess.run(init)
-
-    coord = tf.train.Coordinator()
-
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-    try:
-    	step = 0
-    	while not coord.should_stop():
-    		step += 1
-    		# print("step: ", step)
-    		sess.run([train_op])
-    		if step % 500 == 0:
-    			# print(sess.run([tf.reduce_sum(y_pred)]))
-
-    			loss_mean_val, acc = sess.run([loss_mean, loss_mean])
-    			print(step, loss_mean_val, acc)
-
-    except tf.errors.OutOfRangeError:
-    	print("done")
-    finally:
-    	coord.request_stop()
-
-    coord.join(threads)
-
-    sess.close()
+        print(metrics)
+        writer.close()
+        return metrics[0]
 
 class Trainer(object):
     """Performs model training and optionally evaluation"""
 
-    def __init__(self, model):
+    def __init__(self, model, train_data, output, test_data):
         self.args = None
         self.model = model
-        self.train_data_path = '../mnistdata/train.tfrecord'
+        self.train_data = train_data
+        self.output = output
+        self.evaluator = Evaluator(model, output, test_data, output)
 
     def run_training(self):
-        tensors = self.model.build_train_graph(self.train_data_path)        
+        with tf.Graph().as_default() as graph:
+            tensors = self.model.build_train_graph(self.train_data)        
+            init_global = tf.global_variables_initializer()
+            init_local = tf.local_variables_initializer()
+            self.saver = tf.train.Saver()
+            merged = tf.summary.merge_all()
 
+        sess = tf.Session(graph=graph)
 
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
-        sess.run(tf.local_variables_initializer())
+        sess.run(init_global)
+        sess.run(init_local)
+
         coord = tf.train.Coordinator()
 
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
+        logdir = os.path.join(self.output, 'train')
+
+        writer = tf.summary.FileWriter(logdir, sess.graph)
+        
+        checkpoint=os.path.join(self.output, 'trained')
+
         try:
             step = 0
             while not coord.should_stop():
-                step += 1
-                # print("step: ", step)
                 sess.run([tensors.train])
-                print(step)
-                if step % 500 == 0:
-                    print(step)
-                    # break
-                    # print(sess.run([tf.reduce_sum(y_pred)]))
-
-                    # loss_mean_val, acc = sess.run([loss_mean, loss_mean])
-                    # print(step, loss_mean_val, acc)
-
+                step += 1
+                if step%10 == 0:
+                    self.saver.save(sess, checkpoint)
         except tf.errors.OutOfRangeError:
-            print("done")
+            print("finish training")
         finally:
             coord.request_stop()
+            self.saver.save(sess, checkpoint)
 
         coord.join(threads)
 
         sess.close()
+        writer.close()
+
+    def evaluate(self):
+        self.evaluator.evaluate()
+        
 
 
-def run(model, argv):
+def run(model):
     """run a training"""
     parser = argparse.ArgumentParser()
+    
     parser.add_argument(
-        '--train_data_path',
+        '--train-data',
         type=str,
         action='append',
+        required=True,
         help='The path to the training data files.')
+
     parser.add_argument(
-        '--output_path',
+        '--output',
         type=str,
-        action='append',
+        action='store',
+        required=True,
         help='The path to which checkpoints and other outputs shoudl be saved')
 
-    args, _ = parser.parse_known_args(argv)
+    parser.add_argument(
+        '--test-data',
+        type=str,
+        action='append',
+        required=True)
 
-    dispatch(model, args)
+    args=parser.parse_args()
 
-def dispatch(model):
-    Trainer(model).run_training()    
+    trainer = Trainer(model, 
+        args.train_data,
+        args.output, 
+        args.test_data)
+
+    trainer.run_training()
+
+    # run test
+    cnn1 =  modellib.create_model()
+
+    eval = Evaluator(cnn1, args.output, args.test_data, args.output)
+    print("accuracy", eval.evaluate())
 
 def main(_):
-    print('main:', _)
     cnn =  modellib.create_model()
-    dispatch(cnn)
-
-    # run(cnn, argv)
-    print(sys.argv)
+    run(cnn)
 
 if __name__ == '__main__':
     tf.app.run()

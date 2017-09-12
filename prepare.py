@@ -18,7 +18,7 @@ for i in range(len(data_splits)):
 
 	writer = tf.python_io.TFRecordWriter(filename)
 
-	print(dataset.images.shape[0])
+	print(data_splits[i], dataset.images.shape[0])
 	for index in range(dataset.images.shape[0]):
 		image = dataset.images[index].tostring()
 		label = dataset.labels[index].tostring()
