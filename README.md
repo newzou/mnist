@@ -1,2 +1,2 @@
-# mnist
-A mnist exmaple
+A CNN exmaple of MNIST
+
